@@ -1,123 +1,292 @@
 /**
  * @file profileUiController.js
- * Handles all DOM interaction: element references, event listener registration,
- * and event handlers.
+ * Handles all DOM interaction and event listeners.
  */
 
 import CanvasModel from './canvasModel.js';
 
-// DOM References: Image and Canvas
 const hiddenImageElement = document.getElementById('hiddenImage');
 const canvasElement = document.getElementById('canvas');
 
 export const canvasModel = new CanvasModel();
 
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
 // ==========================================
-// EVENT HANDLERS
+// IMAGE HANDLING
 // ==========================================
 
-/**
- * Reads the picked file as a base64 data URL so the image source is
- * self-contained and survives any later refactor toward localStorage persistence.
- */
 function handleImageChange(event) {
     const file = event.target.files[0];
+
     if (file) {
         const reader = new FileReader();
-        reader.onload = (e) => setImageElement(e.target.result);
+
+        reader.onload = (e) => {
+            setImageElement(e.target.result);
+
+            // Save image separately for persistence
+            localStorage.setItem('profileImage', e.target.result);
+        };
+
         reader.readAsDataURL(file);
     }
 }
 
-/** Re-renders on every keystroke so the preview tracks the input live. */
+// ==========================================
+// TEXT CONTROLS
+// ==========================================
+
 function handleTopTextChange(event) {
     canvasModel.topText = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
-/** Re-renders on every keystroke so the preview tracks the input live. */
 function handleBottomTextChange(event) {
     canvasModel.bottomText = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
 function handleTextColorChange(event) {
     canvasModel.textColor = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
 function handleFontChange(event) {
     canvasModel.fontFamily = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
 function handleFontSizeChange(event) {
     canvasModel.fontSize = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
 function handleOutlineChange(event) {
     canvasModel.outlineColor = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
 function handleFilterChange(event) {
     canvasModel.filter = event.target.value;
-    canvasModel.render(canvasElement);
+    updateCanvas();
 }
 
-/**
- * Refreshes the anchor's href with a PNG of the current canvas just before the
- * browser's default click action fires; the anchor's `download` attribute then
- * handles the file save, so no preventDefault or synthetic click is needed.
- */
+function handleZoomChange(event) {
+    canvasModel.zoom = Number(event.target.value);
+    updateCanvas();
+}
+
+// ==========================================
+// STICKERS
+// ==========================================
+
+function getMousePosition(event) {
+    const rect = canvasElement.getBoundingClientRect();
+
+    return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+    };
+}
+
+function handleEmojiButtonClick(event) {
+    document.getElementById('stickerText').value = event.target.textContent;
+}
+
+function handleCanvasMouseMove(event) {
+    const mousePos = getMousePosition(event);
+
+    // Sticker preview
+    const stickerText = document.getElementById('stickerText').value;
+
+    canvasModel.previewSticker = {
+        text: stickerText,
+        x: mousePos.x,
+        y: mousePos.y
+    };
+
+    // Drag image position
+    if (isDragging) {
+        const dx = mousePos.x - lastMouseX;
+        const dy = mousePos.y - lastMouseY;
+
+        canvasModel.imageOffsetX += dx;
+        canvasModel.imageOffsetY += dy;
+
+        lastMouseX = mousePos.x;
+        lastMouseY = mousePos.y;
+    }
+
+    updateCanvas();
+}
+
+function handleCanvasClick(event) {
+    const mousePos = getMousePosition(event);
+
+    const stickerText = document.getElementById('stickerText').value;
+
+    canvasModel.stickers.push({
+        text: stickerText,
+        x: mousePos.x,
+        y: mousePos.y
+    });
+
+    updateCanvas();
+}
+
+function handleMouseDown(event) {
+    isDragging = true;
+
+    const mousePos = getMousePosition(event);
+
+    lastMouseX = mousePos.x;
+    lastMouseY = mousePos.y;
+}
+
+function handleMouseUp() {
+    isDragging = false;
+}
+
+function handleClearStickers() {
+    canvasModel.stickers = [];
+    updateCanvas();
+}
+
+// ==========================================
+// DOWNLOAD
+// ==========================================
+
 function handleDownloadClick(event) {
     event.currentTarget.href = canvasElement.toDataURL('image/png');
 }
 
 // ==========================================
-// SETUP FUNCTIONS
+// LOCAL STORAGE
 // ==========================================
 
-/** Registers all event listeners. */
-function setupEventListeners() {
-    document.getElementById('image').addEventListener('change', handleImageChange);
-    document.getElementById('topText').addEventListener('input', handleTopTextChange);
-    document.getElementById('bottomText').addEventListener('input', handleBottomTextChange);
-    document.getElementById('downloadPic').addEventListener('click', handleDownloadClick);
-    document.getElementById('textColor').addEventListener('input', handleTextColorChange);
-    document.getElementById('fontSelect').addEventListener('change', handleFontChange);
-    document.getElementById('fontSize').addEventListener('input', handleFontSizeChange);
-    document.getElementById('textOutline').addEventListener('change', handleOutlineChange);
-    document.getElementById('filterSelect').addEventListener('change', handleFilterChange);
+function saveToLocalStorage() {
+    const data = canvasModel.toStorageObject();
+
+    localStorage.setItem('profileSettings', JSON.stringify(data));
 }
 
-/**
- * Sets the hidden image element's src, wires it to the model, and renders on load.
- * @param {string} url - Path or data URL for the image.
- */
+function loadFromLocalStorage() {
+    const savedSettings = localStorage.getItem('profileSettings');
+
+    if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+
+        canvasModel.loadFromStorageObject(parsed);
+
+        // Restore form controls
+        document.getElementById('topText').value = canvasModel.topText;
+        document.getElementById('bottomText').value = canvasModel.bottomText;
+        document.getElementById('textColor').value = canvasModel.textColor;
+        document.getElementById('fontSelect').value = canvasModel.fontFamily;
+        document.getElementById('fontSize').value = canvasModel.fontSize;
+        document.getElementById('textOutline').value = canvasModel.outlineColor;
+        document.getElementById('filterSelect').value = canvasModel.filter;
+        document.getElementById('zoomRange').value = canvasModel.zoom;
+    }
+
+    const savedImage = localStorage.getItem('profileImage');
+
+    if (savedImage) {
+        setImageElement(savedImage);
+    }
+}
+
+// ==========================================
+// CANVAS HELPERS
+// ==========================================
+
+function updateCanvas() {
+    canvasModel.render(canvasElement);
+    saveToLocalStorage();
+}
+
 function setImageElement(url) {
     hiddenImageElement.src = url;
+
     canvasModel.image = hiddenImageElement;
+
     hiddenImageElement.onload = () => {
-        canvasModel.render(canvasElement);
+        updateCanvas();
     };
 }
 
-/** Sizes the canvas to fit the viewport (capped at 500px). */
 function sizeCanvas() {
     canvasElement.height = Math.min(500, window.innerWidth - 30);
     canvasElement.width = Math.min(500, window.innerWidth - 30);
 }
 
-/**
- * Initializes the application: wires up event listeners, sizes the canvas,
- * and renders the default image so the canvas is never empty.
- */
+// ==========================================
+// EVENT LISTENERS
+// ==========================================
+
+function setupEventListeners() {
+    document.getElementById('image')
+        .addEventListener('change', handleImageChange);
+
+    document.getElementById('topText')
+        .addEventListener('input', handleTopTextChange);
+
+    document.getElementById('bottomText')
+        .addEventListener('input', handleBottomTextChange);
+
+    document.getElementById('downloadPic')
+        .addEventListener('click', handleDownloadClick);
+
+    document.getElementById('textColor')
+        .addEventListener('input', handleTextColorChange);
+
+    document.getElementById('fontSelect')
+        .addEventListener('change', handleFontChange);
+
+    document.getElementById('fontSize')
+        .addEventListener('input', handleFontSizeChange);
+
+    document.getElementById('textOutline')
+        .addEventListener('change', handleOutlineChange);
+
+    document.getElementById('filterSelect')
+        .addEventListener('change', handleFilterChange);
+
+    document.getElementById('zoomRange')
+        .addEventListener('input', handleZoomChange);
+
+    document.getElementById('clearStickers')
+        .addEventListener('click', handleClearStickers);
+
+    canvasElement.addEventListener('mousemove', handleCanvasMouseMove);
+    canvasElement.addEventListener('click', handleCanvasClick);
+    canvasElement.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    document.querySelectorAll('.emoji-btn').forEach((button) => {
+    button.addEventListener('click', handleEmojiButtonClick);
+});
+}
+
+// ==========================================
+// INIT
+// ==========================================
+
 export function init() {
-    const DEFAULT_IMAGE_FILE = "/images/defaultProfileImage.jpg";
+    const DEFAULT_IMAGE_FILE = '/images/defaultProfileImage.jpg';
 
     setupEventListeners();
+
     sizeCanvas();
-    setImageElement(DEFAULT_IMAGE_FILE);
+
+    loadFromLocalStorage();
+
+    if (!localStorage.getItem('profileImage')) {
+        setImageElement(DEFAULT_IMAGE_FILE);
+    }
+
+    updateCanvas();
 }
